@@ -6,18 +6,20 @@ local WISDOM_NAME = "Blessing of Wisdom"
 
 -- Create a SECURE button using the SecureActionButtonTemplate
 local blessButton = CreateFrame("Button", "PalaClassBlessSecureButton", UIParent, "SecureActionButtonTemplate")
-blessButton:SetSize(80, 25)
-blessButton:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-blessButton:SetText("Bless")
+blessButton:SetSize(80, 25) -- Width, Height
+blessButton:SetPoint("CENTER", UIParent, "CENTER", 0, 0) -- Startposition (middle of the screen)
+blessButton:SetText("Bless") -- Text on the button
+-- Add a visibility standard
+blessButton:SetAlpha(1)
+blessButton:Show() -- Make sure its visible at start
 
 -- Configure the button to run a macro
 blessButton:SetAttribute("type", "macro")
 
--- Make the button draggable (Note: Dragging secure frames can sometimes be tricky)
+-- Make the button draggable
 blessButton:SetMovable(true)
 blessButton:EnableMouse(true)
 blessButton:RegisterForDrag("LeftButton")
--- Add a check to only allow dragging outside of combat lockdown
 blessButton:SetScript("OnDragStart", function(self)
     if not InCombatLockdown() then
         self:StartMoving()
@@ -27,83 +29,98 @@ blessButton:SetScript("OnDragStart", function(self)
 end)
 blessButton:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
-    -- Here you could add code to save the button's position if desired
 end)
 
 -- Define the macro format
-local macroFormat = "/cast [@target] %s" -- %s gets replaced with the spell name
+local macroFormat = "/cast [@target] %s"
 
 -- Function to update the button's macro text based on the current target
 local function UpdateBlessMacro()
-    if not blessButton then return end -- Safety check
+    if not blessButton then print("PalaClassBless: UpdateBlessMacro - blessButton is nil!") return end
 
-    local spellNameToUse = MIGHT_NAME -- Default to Might
-    local spellIdToCheck = MIGHT_ID   -- Default ID check
+    local spellNameToUse = MIGHT_NAME
+    local spellIdToCheck = MIGHT_ID
 
-    -- Check if target is valid for blessing
     if UnitExists("target") and UnitIsPlayer("target") and UnitIsFriend("player", "target") then
         local _, classToken = UnitClass("target")
-        -- Define classes that prefer Wisdom
         local classesForWisdom = {
              ["MAGE"] = true, ["WARLOCK"] = true, ["PRIEST"] = true,
              ["DRUID"] = true, ["PALADIN"] = true, ["SHAMAN"] = true
         }
-        -- If target class is in the list, switch to Wisdom
         if classesForWisdom[classToken] then
             spellNameToUse = WISDOM_NAME
             spellIdToCheck = WISDOM_ID
         end
 
-        -- IMPORTANT: Check if the Paladin actually knows the determined spell
         if not IsSpellKnown(spellIdToCheck) then
              print("PalaClassBless: Cannot set macro - spell '" .. spellNameToUse .. "' (ID: " .. spellIdToCheck .. ") not known.")
-             blessButton:SetAttribute("macrotext", "") -- Clear the macro if spell not known
-             return -- Exit the function
+             blessButton:SetAttribute("macrotext", "")
+             return
         end
-
     else
-         -- No valid target, clear the macro so the button does nothing or provide feedback
-         -- print("PalaClassBless: No valid target, clearing macro.") -- Optional Debug
          blessButton:SetAttribute("macrotext", "")
-         return -- Exit the function
+         return
     end
 
-    -- Set the button's macro text attribute
     local newMacroText = string.format(macroFormat, spellNameToUse)
     blessButton:SetAttribute("macrotext", newMacroText)
-    -- print("PalaClassBless: Macro updated to: " .. newMacroText) -- Optional Debug for testing
+    -- print("PalaClassBless: Macro updated to: " .. newMacroText) -- Debug
 end
 
 -- Create a small invisible frame to listen for events
 local eventFrame = CreateFrame("Frame", "PalaClassBlessEventFrame")
-eventFrame:RegisterUnitEvent("UNIT_TARGET", "player") -- Listen for player target changes
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")     -- Update when logging in/reloading UI
-eventFrame:RegisterEvent("SPELLS_CHANGED")           -- Update if spells are learned/unlearned
+eventFrame:RegisterUnitEvent("UNIT_TARGET", "player")
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("SPELLS_CHANGED")
 
--- Set the script to run when one of the registered events occurs
 eventFrame:SetScript("OnEvent", function(self, event, unit)
-    -- Check if the event is UNIT_TARGET and the unit affected is the player
     if event == "UNIT_TARGET" and unit == "player" then
         UpdateBlessMacro()
-    -- Also run the update on login or when spells change
     elseif event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
         UpdateBlessMacro()
     end
 end)
 
--- Run the update once initially when the addon loads, in case the player already has a target
+-- Run the update once initially when the addon loads
 UpdateBlessMacro()
 
--- Slash command to show/hide the button (remains mostly the same)
+-- Slash command to show/hide the button (with enhanced debugging)
 SLASH_PALACLASSBLESS1 = "/palaclassbless"
 SlashCmdList["PALACLASSBLESS"] = function(msg)
-    if blessButton:IsShown() then
-        blessButton:Hide()
-        print("PalaClassBless: Button hidden. Type /palaclassbless to show.")
+    print("--- PalaClassBless Slash Command Start ---")
+    if blessButton then
+        print("SlashCmd: blessButton object exists. Name: " .. blessButton:GetName())
+        local isShown = blessButton:IsShown()
+        local alpha = blessButton:GetAlpha()
+        local strata = blessButton:GetFrameStrata()
+        local level = blessButton:GetFrameLevel()
+        print(string.format("SlashCmd: Current State - IsShown: %s, Alpha: %.2f, Strata: %s, Level: %d", tostring(isShown), alpha, strata, level))
+
+        if isShown then
+            print("SlashCmd: Button is currently shown. Hiding button.")
+            blessButton:Hide()
+            print("PalaClassBless: Button hidden. Type /palaclassbless to show.")
+        else
+            print("SlashCmd: Button is currently hidden or not shown. Showing button.")
+            blessButton:SetAlpha(1) -- Ensure full alpha
+            blessButton:Show()
+            -- Re-apply position just in case it was moved off-screen
+            blessButton:ClearAllPoints()
+            blessButton:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+            print("PalaClassBless: Button shown.")
+        end
+        -- Check state *after* trying to show/hide
+        print(string.format("SlashCmd: State AFTER action - IsShown: %s, Alpha: %.2f", tostring(blessButton:IsShown()), blessButton:GetAlpha()))
     else
-        blessButton:Show()
-        print("PalaClassBless: Button shown.")
+         print("SlashCmd: ERROR - blessButton object is nil!")
     end
+    print("--- PalaClassBless Slash Command End ---")
 end
 
-print("PalaClassBless Addon (Secure Version) loaded successfully!")
+-- Try explicitly showing the button again after everything is defined
+if blessButton then
+    blessButton:Show()
+    print("PalaClassBless: Explicit Show() called at the end of the file.")
+end
+
+print("PalaClassBless Addon (Secure Version with Debugging) loaded successfully!")
