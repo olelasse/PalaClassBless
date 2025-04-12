@@ -1,82 +1,101 @@
 -- Define Spell IDs and Names
--- Using Rank 1 IDs is usually sufficient for IsSpellKnown checks
 local MIGHT_ID = 19740
 local WISDOM_ID = 19742
 local MIGHT_NAME = "Blessing of Might"
 local WISDOM_NAME = "Blessing of Wisdom"
 
--- Create main button
-local blessButton = CreateFrame("Button", "BlessHelperButton", UIParent, "UIPanelButtonTemplate")
-blessButton:SetSize(80, 25) -- Width, Height
-blessButton:SetPoint("CENTER", UIParent, "CENTER", 0, 0) -- Startposition (middle of the screen)
-blessButton:SetText("Bless") -- Text on the button
+-- Create a SECURE button using the SecureActionButtonTemplate
+local blessButton = CreateFrame("Button", "PalaClassBlessSecureButton", UIParent, "SecureActionButtonTemplate")
+blessButton:SetSize(80, 25)
+blessButton:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+blessButton:SetText("Bless")
 
--- Make the button draggable
+-- Configure the button to run a macro
+blessButton:SetAttribute("type", "macro")
+
+-- Make the button draggable (Note: Dragging secure frames can sometimes be tricky)
 blessButton:SetMovable(true)
 blessButton:EnableMouse(true)
 blessButton:RegisterForDrag("LeftButton")
-blessButton:SetScript("OnDragStart", blessButton.StartMoving)
-blessButton:SetScript("OnDragStop", blessButton.StopMovingOrSizing)
+-- Add a check to only allow dragging outside of combat lockdown
+blessButton:SetScript("OnDragStart", function(self)
+    if not InCombatLockdown() then
+        self:StartMoving()
+    else
+        print("PalaClassBless: Cannot move button during combat lockdown.")
+    end
+end)
+blessButton:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    -- Here you could add code to save the button's position if desired
+end)
 
--- Function that will be run when the button is pressed
-local function OnBlessButtonClick(self, button)
-    print("PalaClassBless: OnBlessButtonClick started!") -- Debug print
+-- Define the macro format
+local macroFormat = "/cast [@target] %s" -- %s gets replaced with the spell name
 
-    -- Check if you have a target, if its a player and a friendly
+-- Function to update the button's macro text based on the current target
+local function UpdateBlessMacro()
+    if not blessButton then return end -- Safety check
+
+    local spellNameToUse = MIGHT_NAME -- Default to Might
+    local spellIdToCheck = MIGHT_ID   -- Default ID check
+
+    -- Check if target is valid for blessing
     if UnitExists("target") and UnitIsPlayer("target") and UnitIsFriend("player", "target") then
-        -- Get the class of target (both local name and english token)
-        -- We use the englsih token (ClassToken) for reliability across languages
         local _, classToken = UnitClass("target")
-        print("PalaClassBless: Target class token: " .. (classToken or "nil")) -- Debug print
-
-        -- Define what class usally prefers Blessing of Wisdom
-        -- The KEY here is the english class-token
+        -- Define classes that prefer Wisdom
         local classesForWisdom = {
-            ["MAGE"] = true,
-            ["WARLOCK"] = true,
-            ["PRIEST"] = true,
-            ["DRUID"] = true,    -- Covers Resto/Balance. Feral might want Might, but Wisdom is safer.
-            ["PALADIN"] = true,  -- Covers Holy. Ret/Prot wants Might.
-            ["SHAMAN"] = true    -- Covers Resto/Elemental. Enhancement wants Might.
+             ["MAGE"] = true, ["WARLOCK"] = true, ["PRIEST"] = true,
+             ["DRUID"] = true, ["PALADIN"] = true, ["SHAMAN"] = true
         }
-
-        local spellToCast
-        local spellIdToCheck
-
-        -- Covers what blessing to cast (name and ID)
+        -- If target class is in the list, switch to Wisdom
         if classesForWisdom[classToken] then
-            spellNameToCast = WISDOM_NAME
+            spellNameToUse = WISDOM_NAME
             spellIdToCheck = WISDOM_ID
-            print("PalaClassBless: Decided on Blessing of Wisdom (ID: " .. spellIdToCheck .. ")") -- Debug print
-        else
-            spellNameToCast = MIGHT_NAME
-            spellIdToCheck = MIGHT_ID
-            print("PalaClassBless: Decided on Blessing of Might (ID: " .. spellIdToCheck .. ")") -- Debug print
         end
 
-        -- Check if you actually know this spell USING ID (important!)
-        if IsSpellKnown(spellIdToCheck) then
-            print("PalaClassBless: Spell ID " .. spellIdToCheck .. " known, attempting cast by name...") -- Debug print
-            -- Cast spell on target USING ITS NAME
-            CastSpellByName(spellNameToCast, "target")
-            print("PalaClassBless: Casting " .. spellNameToCast .. " on " .. UnitName("target"))
-        else
-             -- Let player know if the spell is not learned
-             print("PalaClassBless: You do not know the spell '" .. spellNameToCast .. "'!")
+        -- IMPORTANT: Check if the Paladin actually knows the determined spell
+        if not IsSpellKnown(spellIdToCheck) then
+             print("PalaClassBless: Cannot set macro - spell '" .. spellNameToUse .. "' (ID: " .. spellIdToCheck .. ") not known.")
+             blessButton:SetAttribute("macrotext", "") -- Clear the macro if spell not known
+             return -- Exit the function
         end
 
     else
-        -- Let the player know the target is not a friendly player
-        print("PalaClassBless: No friendly player is chosen as target..")
+         -- No valid target, clear the macro so the button does nothing or provide feedback
+         -- print("PalaClassBless: No valid target, clearing macro.") -- Optional Debug
+         blessButton:SetAttribute("macrotext", "")
+         return -- Exit the function
     end
+
+    -- Set the button's macro text attribute
+    local newMacroText = string.format(macroFormat, spellNameToUse)
+    blessButton:SetAttribute("macrotext", newMacroText)
+    -- print("PalaClassBless: Macro updated to: " .. newMacroText) -- Optional Debug for testing
 end
 
--- Connect click-function to button
-blessButton:SetScript("OnClick", OnBlessButtonClick)
-print("PalaClassBless: OnClick script set.") -- Debug print
+-- Create a small invisible frame to listen for events
+local eventFrame = CreateFrame("Frame", "PalaClassBlessEventFrame")
+eventFrame:RegisterUnitEvent("UNIT_TARGET", "player") -- Listen for player target changes
+eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")     -- Update when logging in/reloading UI
+eventFrame:RegisterEvent("SPELLS_CHANGED")           -- Update if spells are learned/unlearned
 
--- (Optional) Add a slash command to show or hide the button
-SLASH_PALACLASSBLESS1 = "/palaclassbless" -- Define command
+-- Set the script to run when one of the registered events occurs
+eventFrame:SetScript("OnEvent", function(self, event, unit)
+    -- Check if the event is UNIT_TARGET and the unit affected is the player
+    if event == "UNIT_TARGET" and unit == "player" then
+        UpdateBlessMacro()
+    -- Also run the update on login or when spells change
+    elseif event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
+        UpdateBlessMacro()
+    end
+end)
+
+-- Run the update once initially when the addon loads, in case the player already has a target
+UpdateBlessMacro()
+
+-- Slash command to show/hide the button (remains mostly the same)
+SLASH_PALACLASSBLESS1 = "/palaclassbless"
 SlashCmdList["PALACLASSBLESS"] = function(msg)
     if blessButton:IsShown() then
         blessButton:Hide()
@@ -87,4 +106,4 @@ SlashCmdList["PALACLASSBLESS"] = function(msg)
     end
 end
 
-print("PalaClassBless Addon loaded!") -- Confirmation in the chat when logged in
+print("PalaClassBless Addon (Secure Version) loaded successfully!")

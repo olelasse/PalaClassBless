@@ -2,6 +2,6 @@
 ## Title: PalaClassBless
 ## Notes: Add a button to cast appropriate Blessing (Might/Wisdom) on target based on class.
 ## Author: Ole Lasse
-## Version: 1.0
+## Version: 0.3
 
 PalaClassBless.lua
