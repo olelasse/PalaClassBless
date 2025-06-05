@@ -20,7 +20,7 @@ local SPELL_INFOS = {
 }
 
 -- Create a SECURE button using the InsecureActionButtonTemplate (insecure to disable it in combat)
-local blessButton = CreateFrame("Button", nil, UIParent, "InsecureActionButtonTemplate")
+local blessButton = CreateFrame("Button", nil, UIParent, "InsecureActionButtonTemplate, UIPanelButtonTemplate")
 blessButton:SetSize(80, 25) -- Width, Height
 blessButton:SetPoint("CENTER") -- Startposition (middle of the screen)
 blessButton:SetText("Bless") -- Text on the button
